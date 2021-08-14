@@ -1,0 +1,1602 @@
+
+
+##————————————————————————————##
+	READ IN DATA, TREE AND LOAD PACKAGES
+##————————————————————————————##
+
+library(ape)
+library(slouch)
+library(geiger)
+
+# Tree
+FullTree<-read.tree("moss_chrono.tre") # USE OWN FILE PATH HERE
+
+#Data
+Data<-read.csv("Data.csv",header = T,row.names = 1) # USE OWN FILE PATH HERE
+
+# Prune tree
+name.check(FullTree,Data)
+PrunnedTree<-keep.tip(FullTree,row.names(Data))
+name.check(PrunnedTree,Data)
+
+# Check alignment
+Data$Species == PrunnedTree$tip.label
+Data <- Data[match(PrunnedTree$tip.label, Data$Species), ]
+Data$Species == PrunnedTree$tip.label
+
+# Tree units
+PrunnedTree$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(PrunnedTree))
+# Unit length
+ScaledTree<-rescale(PrunnedTree, "depth", 1)
+# Maximum tree depth
+max(node.depth.edgelength(ScaledTree))
+
+# Plot tree
+plot(ladderize(ScaledTree), cex = 1)
+
+##————————————————————————————————————##
+	ML RECONSTRUCTION OF ANCESTRAL STATES & SLOUCH ANALYSES
+##————————————————————————————————————##
+
+
+## REGIME SPECIFICATION UNDER ML ##
+
+# Model comparison
+X<-as.factor(Data$growthform)
+ER<-ace(X,ScaledTree,type="discrete",model="ER")
+ARD<-ace(X,ScaledTree,type="discrete",model="ARD")
+# AIC 
+AIC(ER)
+AIC(ARD)
+# Reconstructions
+ER$lik.anc
+ARD$lik.anc
+
+# LRT
+Simpl<-ER
+Compl<-ARD
+LR<-2*(Compl$loglik-Simpl$loglik)                                     # Likelihood ratio
+p_value=1-pchisq(LR,df=length(Compl$rates)-length(Simpl$rates))       # Significance
+# ER best
+
+# Selecting preferred model for reconstruction
+ASR<-ER$lik.anc
+# Plot under preferred model
+plot(PrunnedTree, type = "c", FALSE, label.offset = 1,cex=0.5)
+co <- c("blue", "brown")
+tiplabels(pch = 21, bg = co[as.numeric(X)], cex = 1, adj = 1)
+nodelabels(pie = ASR, piecol = co, cex = 0.5)
+
+
+## RECONSTRUCTION AS REGIME USING ML PROBABILITIES ##
+
+# Identify if there are ambiguous nodes (i.e. ties in high probability)
+apply(ASR, 1, function(x) length(x[x==max(x)]))
+# Notes:
+# Values indicate the number of character states with highest probability for each node
+# If all are 1, it indicates that all nodes are unambiguous
+# Values > 1 indicate ambiguous nodes (the number corresponds to the amount of character states with highest probability)
+# Ambiguous nodes won't crash the code below, but it's recommended to fix them manually (e.g. based on another criterion), because the code below will solve the ambiguity randomly (this is computationally convenient, but biologically unjustified)
+
+# Map reconstruction on the tree
+RegTree<-makeNodeLabel(PrunnedTree,"n",prefix = "#")
+nodelabels(RegTree$node.label, frame = "none", cex = 0.75, adj = c(1,-1))
+RegTree$node.label <- colnames(ASR) [apply(ASR, 1, which.max)]
+
+# Verify
+reg.nod<-character(length(RegTree$node.label))
+reg.nod[RegTree$node.label=="acr"]<-"blue"
+reg.nod[RegTree$node.label=="ple"]<-"brown"
+plot(RegTree, type = "c", FALSE, label.offset = 1,cex=0.5)
+tiplabels(pch = 21, bg = co[as.numeric(X)], cex = 1, adj = 1)
+nodelabels(pch = 21,bg=reg.nod)
+
+# Mapping as regime
+internal_regimes <- RegTree$node.label
+RegVec <- c(as.character(Data$growthform), internal_regimes)
+Regime <- factor(RegVec[PrunnedTree$edge[,2]])
+plot(RegTree, type = "c", FALSE, label.offset = 1, 
+     edge.color = c("blue", "brown")[Regime], 
+     edge.width = 3, cex = 0.5)
+
+# For visualization
+plot(RegTree, edge.color = c("blue", "brown")[Regime], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(length = 100, cex = 0.8)
+
+##############
+### SLOUCH ###
+##############
+
+# Remove species without phenotypic info (leaf area)
+slouchData<-Data[complete.cases(Data[,"log_phyllid_area"]),]
+
+# Prune tree
+name.check(RegTree,slouchData)
+slouchTree<-keep.tip(RegTree,row.names(slouchData))
+name.check(slouchTree,slouchData)
+
+# Check alignment
+slouchData$Species == slouchTree$tip.label
+
+# Tree units
+slouchTree$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(slouchTree))
+
+# Verify reconstruction on pruned tree
+XX<-as.factor(slouchData$growthform)
+Reg.node<-character(length(slouchTree$node.label))
+Reg.node[slouchTree$node.label=="acr"]<-"blue"
+Reg.node[slouchTree$node.label=="ple"]<-"brown"
+plot(slouchTree, type = "c", FALSE, label.offset = 1,cex=0.5)
+tiplabels(pch = 21, bg = co[as.numeric(XX)], cex = 1.5, adj = 1)
+nodelabels(pch = 21,bg=Reg.node)
+
+# Regime on pruned tree
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$growthform), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, type = "c", FALSE, label.offset = 1, 
+     edge.color = c("blue", "brown")[Regimes], 
+     edge.width = 3, cex = 0.5)
+
+# For visualization
+plot(slouchTree, edge.color = c("blue", "brown")[Regimes], 
+     edge.width = 3, cex = 1)
+add.scale.bar(5, 0, length = 100, cex = 0.8)
+legend("topleft", c("Upright", "Prostrate"),
+       col=c("blue", "brown"),
+       lty = c("solid"),
+       cex = 1,
+       box.col = "black")
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$growthform) 
+
+# Saving data
+write.csv(slouchData, file = "newData.csv")
+# Saving tree
+write.tree(slouchTree, file = "GrowthReg.tre")
+
+## REGIME SPECIFICATION UNDER ML ##
+
+# Model comparison
+X<-as.factor(Data$light)
+ER<-ace(X,ScaledTree,type="discrete",model="ER")
+ARD<-ace(X,ScaledTree,type="discrete",model="ARD")
+# AIC 
+AIC(ER)
+AIC(ARD)
+# Reconstructions
+ER$lik.anc
+ARD$lik.anc
+
+# LRT
+Simpl<-ER
+Compl<-ARD
+LR<-2*(Compl$loglik-Simpl$loglik)                                     # Likelihood ratio
+p_value=1-pchisq(LR,df=length(Compl$rates)-length(Simpl$rates))       # Significance
+# ARD best
+
+
+# Selecting preferred model for reconstruction
+ASR<-ARD$lik.anc
+# Plot under preferred model
+plot(PrunnedTree, type = "c", FALSE, label.offset = 1,cex=0.5)
+co <- c("black", "yellow")
+tiplabels(pch = 21, bg = co[as.numeric(X)], cex = 1, adj = 1)
+nodelabels(pie = ASR, piecol = co, cex = 0.5)
+
+
+## RECONSTRUCTION AS REGIME USING ML PROBABILITIES ##
+
+# Identify if there are ambiguous nodes (i.e. ties in high probability)
+apply(ASR, 1, function(x) length(x[x==max(x)]))
+# Notes:
+# Values indicate the number of character states with highest probability for each node
+# If all are 1, it indicates that all nodes are unambiguous
+# Values > 1 indicate ambiguous nodes (the number corresponds to the amount of character states with highest probability)
+# Ambiguous nodes won't crash the code below, but it's recommended to fix them manually (e.g. based on another criterion), because the code below will solve the ambiguity randomly (this is computationally convenient, but biologically unjustified)
+
+# Map reconstruction on the tree
+RegTree<-makeNodeLabel(PrunnedTree,"n",prefix = "#")
+nodelabels(RegTree$node.label, frame = "none", cex = 0.75, adj = c(1,-1))
+RegTree$node.label <- colnames(ASR) [apply(ASR, 1, which.max)]
+
+# Verify
+reg.nod<-character(length(RegTree$node.label))
+reg.nod[RegTree$node.label=="filtered"]<-"black"
+reg.nod[RegTree$node.label=="open"]<-"yellow"
+plot(RegTree, type = "c", FALSE, label.offset = 1,cex=0.5)
+tiplabels(pch = 21, bg = co[as.numeric(X)], cex = 1, adj = 1)
+nodelabels(pch = 21,bg=reg.nod)
+
+# Mapping as regime
+internal_regimes <- RegTree$node.label
+RegVec <- c(as.character(Data$light), internal_regimes)
+Regime <- factor(RegVec[PrunnedTree$edge[,2]])
+plot(RegTree, type = "c", FALSE, label.offset = 1, 
+     edge.color = c("black", "yellow")[Regime], 
+     edge.width = 3, cex = 0.5)
+
+# For visualization
+plot(RegTree, edge.color = c("black", "yellow")[Regime], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(length = 100, cex = 0.5)
+
+
+##############
+### SLOUCH ###
+##############
+
+# Remove species without phenotypic info (leaf area)
+slouchData<-Data[complete.cases(Data[,"log_phyllid_area"]),]
+
+# Prune tree
+name.check(RegTree,slouchData)
+slouchTree<-keep.tip(RegTree,row.names(slouchData))
+name.check(slouchTree,slouchData)
+
+# Check alignment
+slouchData$Species == slouchTree$tip.label
+
+# Tree units
+slouchTree$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(slouchTree))
+
+# Verify reconstruction on pruned tree
+XX<-as.factor(slouchData$light)
+Reg.node<-character(length(slouchTree$node.label))
+Reg.node[slouchTree$node.label=="filtered"]<-"black"
+Reg.node[slouchTree$node.label=="open"]<-"yellow"
+plot(slouchTree, type = "c", FALSE, label.offset = 1,cex=0.5)
+tiplabels(pch = 21, bg = co[as.numeric(XX)], cex = 1.5, adj = 1)
+nodelabels(pch = 21,bg=Reg.node)
+
+# Regime on pruned tree
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$light), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, type = "c", FALSE, label.offset = 1, 
+     edge.color = c("black", "yellow")[Regimes], 
+     edge.width = 3, cex = 0.5)
+
+# For visualization
+plot(slouchTree, edge.color = c("black", "yellow")[Regimes], 
+     edge.width = 3, cex = 1)
+add.scale.bar(5, 0, length = 100, cex = 0.8)
+legend("topleft", c("filtered", "open"),
+       col=c("black", "yellow"),
+       lty = c("solid"),
+       cex = 1,
+       box.col = "black")
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$light) 
+
+# Saving data
+write.csv(slouchData, file = "newData.csv")
+# Saving tree
+write.tree(slouchTree, file = "LightReg.tre")
+
+## REGIME SPECIFICATION UNDER ML ##
+
+# Model comparison
+X<-as.factor(Data$ambient_moisture)
+ER<-ace(X,ScaledTree,type="discrete",model="ER")
+SYM<-ace(X,ScaledTree,type="discrete",model="SYM")
+ARD<-ace(X,ScaledTree,type="discrete",model="ARD",ip=0.000000000001)     # Warnings!
+# AIC 
+AIC(ER)
+AIC(SYM)
+AIC(ARD)
+# Reconstructions
+ER$lik.anc
+SYM$lik.anc
+ARD$lik.anc
+
+# LRT for best nested candidates
+Simpl<-ER
+Compl<-SYM
+LR<-2*(Compl$loglik-Simpl$loglik)                                     # Likelihood ratio
+p_value=1-pchisq(LR,df=length(Compl$rates)-length(Simpl$rates))       # Significance
+# SYM best
+
+
+# Custom model
+Q <- matrix(c(0, 3, 3,
+              1, 0, 1,
+              2, 1, 0), 3, byrow = T)
+## Reconstruction based on this model
+Cust<-ace(X,ScaledTree,type="discrete",model=Q)
+# AIC
+AIC(Cust)
+# Custom better
+
+# Reconstruction
+Cust$lik.anc
+
+
+# Selecting preferred model for reconstruction
+ASR<-Cust$lik.anc
+# Plot under preferred model
+plot(PrunnedTree, type = "c", FALSE, label.offset = 1,cex=0.5)
+co <- c("red", "blue", "purple")
+tiplabels(pch = 21, bg = co[as.numeric(X)], cex = 1, adj = 1)
+nodelabels(pie = ASR, piecol = co, cex = 0.5)
+
+
+## RECONSTRUCTION AS REGIME USING ML PROBABILITIES ##
+
+# Identify if there are ambiguous nodes (i.e. ties in high probability)
+apply(ASR, 1, function(x) length(x[x==max(x)]))
+# Notes:
+# Values indicate the number of character states with highest probability for each node
+# If all are 1, it indicates that all nodes are unambiguous
+# Values > 1 indicate ambiguous nodes (the number corresponds to the amount of character states with highest probability)
+# Ambiguous nodes won't crash the code below, but it's recommended to fix them manually (e.g. based on another criterion), because the code below will solve the ambiguity randomly (this is computationally convenient, but biologically unjustified)
+
+# Map reconstruction on the tree
+RegTree<-makeNodeLabel(PrunnedTree,"n",prefix = "#")
+nodelabels(RegTree$node.label, frame = "none", cex = 0.75, adj = c(1,-1))
+RegTree$node.label <- colnames(ASR) [apply(ASR, 1, which.max)]
+
+# Verify
+reg.nod<-character(length(RegTree$node.label))
+reg.nod[RegTree$node.label=="mesic"]<-"red"
+reg.nod[RegTree$node.label=="moist"]<-"blue"
+reg.nod[RegTree$node.label=="moist_mesic"]<-"purple"
+plot(RegTree, type = "c", FALSE, label.offset = 1,cex=0.5)
+tiplabels(pch = 21, bg = co[as.numeric(X)], cex = 1, adj = 1)
+nodelabels(pch = 21,bg=reg.nod)
+
+# Mapping as regime
+internal_regimes <- RegTree$node.label
+RegVec <- c(as.character(Data$ambient_moisture), internal_regimes)
+Regime <- factor(RegVec[PrunnedTree$edge[,2]])
+plot(RegTree, type = "c", FALSE, label.offset = 1, 
+     edge.color = c("red", "blue", "purple")[Regime], 
+     edge.width = 3, cex = 0.5)
+
+# For visualization
+plot(RegTree, edge.color = c("red", "blue", "purple")[Regime], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(length = 100, cex = 0.5)
+
+
+##############
+### SLOUCH ###
+##############
+
+# Remove species without phenotypic info (leaf area)
+slouchData<-Data[complete.cases(Data[,"log_phyllid_area"]),]
+
+# Prune tree
+name.check(RegTree,slouchData)
+slouchTree<-keep.tip(RegTree,row.names(slouchData))
+name.check(slouchTree,slouchData)
+
+# Check alignment
+slouchData$Species == slouchTree$tip.label
+
+# Tree units
+slouchTree$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(slouchTree))
+
+# Verify reconstruction on pruned tree
+XX<-as.factor(slouchData$ambient_moisture)
+Reg.node<-character(length(slouchTree$node.label))
+Reg.node[slouchTree$node.label=="mesic"]<-"red"
+Reg.node[slouchTree$node.label=="moist"]<-"blue"
+Reg.node[slouchTree$node.label=="moist_mesic"]<-"purple"
+plot(slouchTree, type = "c", FALSE, label.offset = 1,cex=0.5)
+tiplabels(pch = 21, bg = co[as.numeric(XX)], cex = 1.5, adj = 1)
+nodelabels(pch = 21,bg=Reg.node)
+
+# Regime on pruned tree
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$ambient_moisture), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, type = "c", FALSE, label.offset = 1, 
+     edge.color = c("red", "blue", "purple")[Regimes], 
+     edge.width = 3, cex = 0.5)
+
+# For visualization
+plot(slouchTree, edge.color = c("red", "blue", "purple")[Regimes], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(Regimes),
+       col=co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$ambient_moisture) 
+
+# Saving data
+write.csv(slouchData, file = "newData.csv")
+# Saving tree
+write.tree(slouchTree, file = "MoistReg.tre")
+
+X<-as.factor(Data$substrate_aspect)  ## NOTE SUBSTRATE ASPECT IS ACTUALLY SUBSTRATE SLOPE
+ER<-ace(X,ScaledTree,type="discrete",model="ER")
+ARD<-ace(X,ScaledTree,type="discrete",model="ARD")
+# AIC 
+AIC(ER)
+AIC(ARD)
+# Reconstructions
+ER$lik.anc
+ARD$lik.anc
+
+# LRT
+Simpl<-ER
+Compl<-ARD
+LR<-2*(Compl$loglik-Simpl$loglik)                                     # Likelihood ratio
+p_value=1-pchisq(LR,df=length(Compl$rates)-length(Simpl$rates))       # Significance
+# ER best
+
+
+
+
+# Selecting preferred model for reconstruction
+ASR<-ER$lik.anc
+# Plot under preferred model
+plot(PrunnedTree, type = "c", FALSE, label.offset = 1,cex=0.5)
+co <- c("brown", "green")
+tiplabels(pch = 21, bg = co[as.numeric(X)], cex = 1, adj = 1)
+nodelabels(pie = ASR, piecol = co, cex = 0.5)
+
+
+## RECONSTRUCTION AS REGIME USING ML PROBABILITIES ##
+
+# Identify if there are ambiguous nodes (i.e. ties in high probability)
+apply(ASR, 1, function(x) length(x[x==max(x)]))
+# Notes:
+# Values indicate the number of character states with highest probability for each node
+# If all are 1, it indicates that all nodes are unambiguous
+# Values > 1 indicate ambiguous nodes (the number corresponds to the amount of character states with highest probability)
+# Ambiguous nodes won't crash the code below, but it's recommended to fix them manually (e.g. based on another criterion), because the code below will solve the ambiguity randomly (this is computationally convenient, but biologically unjustified)
+
+# Map reconstruction on the tree
+RegTree<-makeNodeLabel(PrunnedTree,"n",prefix = "#")
+nodelabels(RegTree$node.label, frame = "none", cex = 0.75, adj = c(1,-1))
+RegTree$node.label <- colnames(ASR) [apply(ASR, 1, which.max)]
+
+# Verify
+reg.nod<-character(length(RegTree$node.label))
+reg.nod[RegTree$node.label=="hor"]<-"brown"
+reg.nod[RegTree$node.label=="ver"]<-"green"
+plot(RegTree, type = "c", FALSE, label.offset = 1,cex=0.5)
+tiplabels(pch = 21, bg = co[as.numeric(X)], cex = 1, adj = 1)
+nodelabels(pch = 21,bg=reg.nod)
+
+# Mapping as regime
+internal_regimes <- RegTree$node.label
+RegVec <- c(as.character(Data$substrate_aspect), internal_regimes)
+Regime <- factor(RegVec[PrunnedTree$edge[,2]])
+plot(RegTree, type = "c", FALSE, label.offset = 1, 
+     edge.color = c("brown", "green")[Regime], 
+     edge.width = 3, cex = 0.5)
+
+# For visualization
+plot(RegTree, edge.color = c("brown", "green")[Regime], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(length = 100, cex = 0.5)
+
+
+##############
+### SLOUCH ###
+##############
+
+# Remove species without phenotypic info (leaf area)
+slouchData<-Data[complete.cases(Data[,"log_phyllid_area"]),]
+
+# Prune tree
+name.check(RegTree,slouchData)
+slouchTree<-keep.tip(RegTree,row.names(slouchData))
+name.check(slouchTree,slouchData)
+
+# Check alignment
+slouchData$Species == slouchTree$tip.label
+
+# Tree units
+slouchTree$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(slouchTree))
+
+# Verify reconstruction on pruned tree
+XX<-as.factor(slouchData$substrate_aspect)
+Reg.node<-character(length(slouchTree$node.label))
+Reg.node[slouchTree$node.label=="hor"]<-"brown"
+Reg.node[slouchTree$node.label=="ver"]<-"green"
+plot(slouchTree, type = "c", FALSE, label.offset = 1,cex=0.5)
+tiplabels(pch = 21, bg = co[as.numeric(XX)], cex = 1.5, adj = 1)
+nodelabels(pch = 21,bg=Reg.node)
+
+# Regime on pruned tree
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$substrate_aspect), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, type = "c", FALSE, label.offset = 1, 
+     edge.color = c("brown", "green")[Regimes], 
+     edge.width = 3, cex = 0.5)
+
+# For visualization
+plot(slouchTree, edge.color = c("brown", "green")[Regimes], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", c("hor", "ver"),
+       col=c("brown", "green"),
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$substrate_aspect) 
+
+# Saving data
+write.csv(slouchData, file = "newData.csv")
+# Saving tree
+write.tree(slouchTree, file = "SubReg.tre")
+
+##————————————————————————————————————##
+	TWO WAY RECONSTRUCTIONS 
+##————————————————————————————————————##
+
+
+# Growth regime
+GrowthReg<-read.tree(file = "GrowthReg.tre")
+# Check match
+name.check(GrowthReg,slouchData)
+# Check alignment
+slouchData$Species == GrowthReg$tip.label
+# Tree units
+GrowthReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(GrowthReg))
+# Plot regime
+G.co <- c("blue", "brown")
+Internal_G <- GrowthReg$node.label
+G_Vec <- c(as.character(slouchData$growthform), Internal_G)
+G_Reg <- factor(G_Vec[GrowthReg$edge[,2]])
+plot(GrowthReg, edge.color = G.co[G_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(G_Reg),
+       col=G.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Light regime
+LightReg<-read.tree(file = "LightReg.tre")
+# Check match
+name.check(LightReg,slouchData)
+# Check alignment
+slouchData$Species == LightReg$tip.label
+# Tree units
+LightReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(LightReg))
+# Plot regime
+L.co <- c("black", "yellow")
+Internal_L <- LightReg$node.label
+L_Vec <- c(as.character(slouchData$light), Internal_L)
+L_Reg <- factor(L_Vec[LightReg$edge[,2]])
+plot(LightReg, edge.color = L.co[L_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(L_Reg),
+       col=L.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Check tree matching
+max(node.depth.edgelength(GrowthReg)) == max(node.depth.edgelength(LightReg))
+GrowthReg$edge.length == LightReg$edge.length
+GrowthReg$tip.label == LightReg$tip.label
+
+# Generating nested regime
+slouchTree <- GrowthReg
+slouchTree$node.label <- rep("NA", length(slouchTree$node.label))
+Comb<-expand.grid(levels(as.factor(GrowthReg$node.label)),levels(as.factor(LightReg$node.label)))
+slouchTree$node.label[GrowthReg$node.label == Comb[1,1] & LightReg$node.label == Comb[1,2]]<-"af"
+slouchTree$node.label[GrowthReg$node.label == Comb[2,1] & LightReg$node.label == Comb[2,2]]<-"pf"
+
+# Plotting nested regime
+co<-c("navy", "blue", "red4", "red")
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$gf_l), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, edge.color = co[Regimes], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(Regimes),
+       col=co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$gf_l) 
+
+# Saving data
+write.csv(slouchData, file = "newData.csv")
+# Saving tree
+write.tree(slouchTree, file = "GLreg.tre")
+
+# Growth regime
+GrowthReg<-read.tree(file = "GrowthReg.tre")
+# Check match
+name.check(GrowthReg,slouchData)
+# Check alignment
+slouchData$Species == GrowthReg$tip.label
+# Tree units
+GrowthReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(GrowthReg))
+# Plot regime
+G.co <- c("blue", "brown")
+Internal_G <- GrowthReg$node.label
+G_Vec <- c(as.character(slouchData$growthform), Internal_G)
+G_Reg <- factor(G_Vec[GrowthReg$edge[,2]])
+plot(GrowthReg, edge.color = G.co[G_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(G_Reg),
+       col=G.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Moisture regime
+MoistReg<-read.tree(file = "MoistReg.tre")
+# Check match
+name.check(MoistReg,slouchData)
+# Check alignment
+slouchData$Species == MoistReg$tip.label
+# Tree units
+MoistReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(MoistReg))
+# Plot regime
+M.co <- c("red", "blue", "purple")
+Internal_M <- MoistReg$node.label
+M_Vec <- c(as.character(slouchData$ambient_moisture), Internal_M)
+M_Reg <- factor(M_Vec[MoistReg$edge[,2]])
+plot(MoistReg, edge.color = M.co[M_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(M_Reg),
+       col=M.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Check tree matching
+max(node.depth.edgelength(GrowthReg)) == max(node.depth.edgelength(MoistReg))
+GrowthReg$edge.length == MoistReg$edge.length
+GrowthReg$tip.label == MoistReg$tip.label
+
+# Generating nested regime
+slouchTree <- GrowthReg
+slouchTree$node.label <- rep("NA", length(slouchTree$node.label))
+Comb<-expand.grid(levels(as.factor(GrowthReg$node.label)),levels(as.factor(MoistReg$node.label)))
+slouchTree$node.label[GrowthReg$node.label == Comb[1,1] & MoistReg$node.label == Comb[1,2]]<-"amesic"
+slouchTree$node.label[GrowthReg$node.label == Comb[2,1] & MoistReg$node.label == Comb[2,2]]<-"pmesic"
+slouchTree$node.label[GrowthReg$node.label == Comb[3,1] & MoistReg$node.label == Comb[3,2]]<-"amoist"
+slouchTree$node.label[GrowthReg$node.label == Comb[4,1] & MoistReg$node.label == Comb[4,2]]<-"pmoist"
+slouchTree$node.label[GrowthReg$node.label == Comb[5,1] & MoistReg$node.label == Comb[5,2]]<-"amm"
+slouchTree$node.label[GrowthReg$node.label == Comb[6,1] & MoistReg$node.label == Comb[6,2]]<-"pmm"
+
+# Plotting nested regime
+co<-c("darkblue", "blue", "cyan", "red4", "red", "indianred1")
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$am_g), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, edge.color = co[Regimes], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(Regimes),
+       col=co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$am_g) 
+
+# Growth regime
+GrowthReg<-read.tree(file = "GrowthReg.tre")
+# Check match
+name.check(GrowthReg,slouchData)
+# Check alignment
+slouchData$Species == GrowthReg$tip.label
+# Tree units
+GrowthReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(GrowthReg))
+# Plot regime
+G.co <- c("blue", "brown")
+Internal_G <- GrowthReg$node.label
+G_Vec <- c(as.character(slouchData$growthform), Internal_G)
+G_Reg <- factor(G_Vec[GrowthReg$edge[,2]])
+plot(GrowthReg, edge.color = G.co[G_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(G_Reg),
+       col=G.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Substrate regime
+SubReg<-read.tree(file = "SubReg.tre")
+# Check match
+name.check(SubReg,slouchData)
+# Check alignment
+slouchData$Species == SubReg$tip.label
+# Tree units
+SubReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(SubReg))
+# Plot regime
+S.co <- c("brown", "green")
+Internal_S <- SubReg$node.label
+S_Vec <- c(as.character(slouchData$substrate_aspect), Internal_S)
+S_Reg <- factor(S_Vec[SubReg$edge[,2]])
+plot(SubReg, edge.color = S.co[S_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(S_Reg),
+       col=S.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Check tree matching
+max(node.depth.edgelength(GrowthReg)) == max(node.depth.edgelength(SubReg))
+GrowthReg$edge.length == SubReg$edge.length
+GrowthReg$tip.label == SubReg$tip.label
+
+# Generating nested regime
+slouchTree <- GrowthReg
+slouchTree$node.label <- rep("NA", length(slouchTree$node.label))
+Comb<-expand.grid(levels(as.factor(GrowthReg$node.label)),levels(as.factor(SubReg$node.label)))
+slouchTree$node.label[GrowthReg$node.label == Comb[1,1] & SubReg$node.label == Comb[1,2]]<-"ah"
+slouchTree$node.label[GrowthReg$node.label == Comb[2,1] & SubReg$node.label == Comb[2,2]]<-"ph"
+slouchTree$node.label[GrowthReg$node.label == Comb[3,1] & SubReg$node.label == Comb[3,2]]<-"av"
+slouchTree$node.label[GrowthReg$node.label == Comb[4,1] & SubReg$node.label == Comb[4,2]]<-"pv"
+
+# Plotting nested regime
+co<-c("red4", "red", "navy", "blue")
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$gf_sa), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, edge.color = co[Regimes], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(Regimes),
+       col=co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$gf_sa) 
+
+# Saving data
+write.csv(slouchData, file = "newData.csv")
+# Saving tree
+write.tree(slouchTree, file = "GSreg.tre")
+
+# Light regime
+LightReg<-read.tree(file = "LightReg.tre")
+# Check match
+name.check(LightReg,slouchData)
+# Check alignment
+slouchData$Species == LightReg$tip.label
+# Tree units
+LightReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(LightReg))
+# Plot regime
+L.co <- c("black", "yellow")
+Internal_L <- LightReg$node.label
+L_Vec <- c(as.character(slouchData$light), Internal_L)
+L_Reg <- factor(L_Vec[LightReg$edge[,2]])
+plot(LightReg, edge.color = L.co[L_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(L_Reg),
+       col=L.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Moisture regime
+MoistReg<-read.tree(file = "MoistReg.tre")
+# Check match
+name.check(MoistReg,slouchData)
+# Check alignment
+slouchData$Species == MoistReg$tip.label
+# Tree units
+MoistReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(MoistReg))
+# Plot regime
+M.co <- c("red", "blue", "purple")
+Internal_M <- MoistReg$node.label
+M_Vec <- c(as.character(slouchData$ambient_moisture), Internal_M)
+M_Reg <- factor(M_Vec[MoistReg$edge[,2]])
+plot(MoistReg, edge.color = M.co[M_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(M_Reg),
+       col=M.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Check tree matching
+max(node.depth.edgelength(LightReg)) == max(node.depth.edgelength(MoistReg))
+LightReg$edge.length == MoistReg$edge.length
+LightReg$tip.label == MoistReg$tip.label
+
+# Generating nested regime
+slouchTree <- LightReg
+slouchTree$node.label <- rep("NA", length(slouchTree$node.label))
+Comb<-expand.grid(levels(as.factor(LightReg$node.label)),levels(as.factor(MoistReg$node.label)))
+slouchTree$node.label[LightReg$node.label == Comb[1,1] & MoistReg$node.label == Comb[1,2]]<-"filtered_mesic"
+slouchTree$node.label[LightReg$node.label == Comb[2,1] & MoistReg$node.label == Comb[2,2]]<-"filtered_moist"
+slouchTree$node.label[LightReg$node.label == Comb[3,1] & MoistReg$node.label == Comb[3,2]]<-"filtered_mm"
+
+# Plotting nested regime
+co<-c("black", "darkgrey", "grey88", "goldenrod2", "gold", "khaki1")
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$am_l), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, edge.color = co[Regimes], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(Regimes),
+       col=co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$am_sa) 
+
+# Saving data
+write.csv(slouchData, file = "newData.csv")
+# Saving tree
+write.tree(slouchTree, file = "SLreg.tre")
+
+## Data
+slouchData<-read.csv("Data.csv",header = T,row.names = 1)
+
+# Substrate regime
+SubReg<-read.tree(file = "SubReg.tre")
+# Check match
+name.check(SubReg,slouchData)
+# Check alignment
+slouchData$Species == SubReg$tip.label
+# Tree units
+SubReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(SubReg))
+# Plot regime
+S.co <- c("brown", "green")
+Internal_S <- SubReg$node.label
+S_Vec <- c(as.character(slouchData$substrate_aspect), Internal_S)
+S_Reg <- factor(S_Vec[SubReg$edge[,2]])
+plot(SubReg, edge.color = S.co[S_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(S_Reg),
+       col=S.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Light regime
+LightReg<-read.tree(file = "LightReg.tre")
+# Check match
+name.check(LightReg,slouchData)
+# Check alignment
+slouchData$Species == LightReg$tip.label
+# Tree units
+LightReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(LightReg))
+# Plot regime
+L.co <- c("black", "yellow")
+Internal_L <- LightReg$node.label
+L_Vec <- c(as.character(slouchData$light), Internal_L)
+L_Reg <- factor(L_Vec[LightReg$edge[,2]])
+plot(LightReg, edge.color = L.co[L_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(L_Reg),
+       col=L.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Check tree matching
+max(node.depth.edgelength(SubReg)) == max(node.depth.edgelength(LightReg))
+SubReg$edge.length == LightReg$edge.length
+SubReg$tip.label == LightReg$tip.label
+
+# Generating nested regime
+slouchTree <- SubReg
+slouchTree$node.label <- rep("NA", length(slouchTree$node.label))
+Comb<-expand.grid(levels(as.factor(SubReg$node.label)),levels(as.factor(LightReg$node.label)))
+slouchTree$node.label[SubReg$node.label == Comb[1,1] & LightReg$node.label == Comb[1,2]]<-"fh"
+slouchTree$node.label[SubReg$node.label == Comb[2,1] & LightReg$node.label == Comb[2,2]]<-"fv"
+
+# Plotting nested regime
+co<-c("black", "grey", "gold", "yellow")
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$sa_l), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, edge.color = co[Regimes], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(Regimes),
+       col=co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$sa_l) 
+
+# Saving data
+write.csv(slouchData, file = "newData.csv")
+# Saving tree
+write.tree(slouchTree, file = "SLreg.tre")
+
+# Growth regime
+GrowthReg<-read.tree(file = "GrowthReg.tre")
+# Check match
+name.check(GrowthReg,slouchData)
+# Check alignment
+slouchData$Species == GrowthReg$tip.label
+# Tree units
+GrowthReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(GrowthReg))
+# Plot regime
+G.co <- c("blue", "brown")
+Internal_G <- GrowthReg$node.label
+G_Vec <- c(as.character(slouchData$growthform), Internal_G)
+G_Reg <- factor(G_Vec[GrowthReg$edge[,2]])
+plot(GrowthReg, edge.color = G.co[G_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(G_Reg),
+       col=G.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Moisture regime
+MoistReg<-read.tree(file = "MoistReg.tre")
+# Check match
+name.check(MoistReg,slouchData)
+# Check alignment
+slouchData$Species == MoistReg$tip.label
+# Tree units
+MoistReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(MoistReg))
+# Plot regime
+M.co <- c("red", "blue", "purple")
+Internal_M <- MoistReg$node.label
+M_Vec <- c(as.character(slouchData$ambient_moisture), Internal_M)
+M_Reg <- factor(M_Vec[MoistReg$edge[,2]])
+plot(MoistReg, edge.color = M.co[M_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(M_Reg),
+       col=M.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Check tree matching
+max(node.depth.edgelength(GrowthReg)) == max(node.depth.edgelength(MoistReg))
+GrowthReg$edge.length == MoistReg$edge.length
+GrowthReg$tip.label == MoistReg$tip.label
+
+# Generating nested regime
+slouchTree <- GrowthReg
+slouchTree$node.label <- rep("NA", length(slouchTree$node.label))
+Comb<-expand.grid(levels(as.factor(GrowthReg$node.label)),levels(as.factor(MoistReg$node.label)))
+slouchTree$node.label[GrowthReg$node.label == Comb[1,1] & MoistReg$node.label == Comb[1,2]]<-"amesic"
+slouchTree$node.label[GrowthReg$node.label == Comb[2,1] & MoistReg$node.label == Comb[2,2]]<-"pmesic"
+slouchTree$node.label[GrowthReg$node.label == Comb[3,1] & MoistReg$node.label == Comb[3,2]]<-"amoist"
+slouchTree$node.label[GrowthReg$node.label == Comb[4,1] & MoistReg$node.label == Comb[4,2]]<-"pmoist"
+slouchTree$node.label[GrowthReg$node.label == Comb[5,1] & MoistReg$node.label == Comb[5,2]]<-"amm"
+slouchTree$node.label[GrowthReg$node.label == Comb[6,1] & MoistReg$node.label == Comb[6,2]]<-"pmm"
+
+# Plotting nested regime
+co<-c("darkblue", "blue", "cyan", "red4", "red", "indianred1")
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$am_g), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, edge.color = co[Regimes], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(Regimes),
+       col=co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$am_g) 
+
+
+# Moisture & light regime
+MLreg<-read.tree(file = "MLreg.tre")
+# Check match
+name.check(MLreg,slouchData)
+# Check alignment
+slouchData$Species == MLreg$tip.label
+# Tree units
+MLreg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(MLreg))
+# Plot regime
+ML.co <- c("black", "darkgrey", "grey88", "goldenrod2", "gold", "khaki1")
+Internal_ML <- MLreg$node.label
+ML_Vec <- c(as.character(slouchData$am_l), Internal_ML)
+ML_Reg <- factor(ML_Vec[MLreg$edge[,2]])
+plot(MLreg, edge.color = ML.co[ML_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(ML_Reg),
+       col=ML.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Growth regime
+GrowthReg<-read.tree(file = "GrowthReg.tre")
+# Check match
+name.check(GrowthReg,slouchData)
+# Check alignment
+slouchData$Species == GrowthReg$tip.label
+# Tree units
+GrowthReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(GrowthReg))
+# Plot regime
+G.co <- c("blue", "brown")
+Internal_G <- GrowthReg$node.label
+G_Vec <- c(as.character(slouchData$growthform), Internal_G)
+G_Reg <- factor(G_Vec[GrowthReg$edge[,2]])
+plot(GrowthReg, edge.color = G.co[G_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(G_Reg),
+       col=G.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Check tree matching
+max(node.depth.edgelength(MLreg)) == max(node.depth.edgelength(GrowthReg))
+MLreg$edge.length == GrowthReg$edge.length
+MLreg$tip.label == GrowthReg$tip.label
+
+# Generating nested regime
+slouchTree <- MLreg
+slouchTree$node.label <- rep("NA", length(slouchTree$node.label))
+Comb<-expand.grid(levels(as.factor(MLreg$node.label)),levels(as.factor(GrowthReg$node.label)))
+slouchTree$node.label[MLreg$node.label == Comb[1,1] & GrowthReg$node.label == Comb[1,2]]<-"afmesic"
+slouchTree$node.label[MLreg$node.label == Comb[2,1] & GrowthReg$node.label == Comb[2,2]]<-"afmoist_mesic"
+slouchTree$node.label[MLreg$node.label == Comb[3,1] & GrowthReg$node.label == Comb[3,2]]<-"afmoist"
+slouchTree$node.label[MLreg$node.label == Comb[4,1] & GrowthReg$node.label == Comb[4,2]]<-"pfmesic"
+slouchTree$node.label[MLreg$node.label == Comb[5,1] & GrowthReg$node.label == Comb[5,2]]<-"pfmoist_mesic"
+slouchTree$node.label[MLreg$node.label == Comb[6,1] & GrowthReg$node.label == Comb[6,2]]<-"pfmoist"
+
+# Plotting nested regime
+co<-c("black", "grey88", "darkgrey", "goldenrod2", "khaki1", "gold", "navy", "cyan", "blue", "red4", "red")
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$gf_l_am), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, edge.color = co[Regimes], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(Regimes),
+       col=co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$gf_l_am) 
+
+# Saving data
+write.csv(slouchData, file = "newData.csv")
+# Saving tree
+write.tree(slouchTree, file = "GLMreg.tre")
+
+# Growth & light regime
+GLreg<-read.tree(file = "GLreg.tre")
+# Check match
+name.check(GLreg,slouchData)
+# Check alignment
+slouchData$Species == GLreg$tip.label
+# Tree units
+GLreg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(GLreg))
+# Plot regime
+GL.co <- c("navy", "blue", "red4", "red")
+Internal_GL <- GLreg$node.label
+GL_Vec <- c(as.character(slouchData$gf_l), Internal_GL)
+GL_Reg <- factor(GL_Vec[GLreg$edge[,2]])
+plot(GLreg, edge.color = GL.co[GL_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(GL_Reg),
+       col=GL.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Substrate regime
+SubReg<-read.tree(file = "SubReg.tre")
+# Check match
+name.check(SubReg,slouchData)
+# Check alignment
+slouchData$Species == SubReg$tip.label
+# Tree units
+SubReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(SubReg))
+# Plot regime
+S.co <- c("brown", "green")
+Internal_S <- SubReg$node.label
+S_Vec <- c(as.character(slouchData$substrate_aspect), Internal_S)
+S_Reg <- factor(S_Vec[SubReg$edge[,2]])
+plot(SubReg, edge.color = S.co[S_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(S_Reg),
+       col=S.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Check tree matching
+max(node.depth.edgelength(GLreg)) == max(node.depth.edgelength(SubReg))
+GLreg$edge.length == SubReg$edge.length
+GLreg$tip.label == SubReg$tip.label
+
+# Generating nested regime
+slouchTree <- GLreg
+slouchTree$node.label <- rep("NA", length(slouchTree$node.label))
+Comb<-expand.grid(levels(as.factor(GLreg$node.label)),levels(as.factor(SubReg$node.label)))
+slouchTree$node.label[GLreg$node.label == Comb[1,1] & SubReg$node.label == Comb[1,2]]<-"afh"
+slouchTree$node.label[GLreg$node.label == Comb[2,1] & SubReg$node.label == Comb[2,2]]<-"pfh"
+slouchTree$node.label[GLreg$node.label == Comb[3,1] & SubReg$node.label == Comb[3,2]]<-"afv"
+slouchTree$node.label[GLreg$node.label == Comb[4,1] & SubReg$node.label == Comb[4,2]]<-"pfv"
+
+# Plotting nested regime
+co<-c("navy", "seagreen4", "blue", "green", "red4", "purple", "red", "lightcoral")
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$gf_sa_l), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, edge.color = co[Regimes], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(Regimes),
+       col=co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$gf_sa_l) 
+
+# Saving data
+write.csv(slouchData, file = "newData.csv")
+# Saving tree
+write.tree(slouchTree, file = "GSLreg.tre")
+
+# Growth & moisture regime
+GMreg<-read.tree(file = "GMreg.tre")
+# Check match
+name.check(GMreg,slouchData)
+# Check alignment
+slouchData$Species == GMreg$tip.label
+# Tree units
+GMreg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(GMreg))
+# Plot regime
+GM.co <- c("darkblue", "blue", "cyan", "red4", "red", "indianred1")
+Internal_GM <- GMreg$node.label
+GM_Vec <- c(as.character(slouchData$am_g), Internal_GM)
+GM_Reg <- factor(GM_Vec[GMreg$edge[,2]])
+plot(GMreg, edge.color = GM.co[GM_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(GM_Reg),
+       col=GM.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Substrate regime
+SubReg<-read.tree(file = "SubReg.tre")
+# Check match
+name.check(SubReg,slouchData)
+# Check alignment
+slouchData$Species == SubReg$tip.label
+# Tree units
+SubReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(SubReg))
+# Plot regime
+S.co <- c("brown", "green")
+Internal_S <- SubReg$node.label
+S_Vec <- c(as.character(slouchData$substrate_aspect), Internal_S)
+S_Reg <- factor(S_Vec[SubReg$edge[,2]])
+plot(SubReg, edge.color = S.co[S_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(S_Reg),
+       col=S.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Check tree matching
+max(node.depth.edgelength(GMreg)) == max(node.depth.edgelength(SubReg))
+GMreg$edge.length == SubReg$edge.length
+GMreg$tip.label == SubReg$tip.label
+
+# Generating nested regime
+slouchTree <- GMreg
+slouchTree$node.label <- rep("NA", length(slouchTree$node.label))
+Comb<-expand.grid(levels(as.factor(GMreg$node.label)),levels(as.factor(SubReg$node.label)))
+slouchTree$node.label[GMreg$node.label == Comb[1,1] & SubReg$node.label == Comb[1,2]]<-"amesich"
+slouchTree$node.label[GMreg$node.label == Comb[2,1] & SubReg$node.label == Comb[2,2]]<-"ammh"
+slouchTree$node.label[GMreg$node.label == Comb[3,1] & SubReg$node.label == Comb[3,2]]<-"pmesich"
+slouchTree$node.label[GMreg$node.label == Comb[4,1] & SubReg$node.label == Comb[4,2]]<-"pmmh"
+slouchTree$node.label[GMreg$node.label == Comb[5,1] & SubReg$node.label == Comb[5,2]]<-"pmoisth"
+slouchTree$node.label[GMreg$node.label == Comb[6,1] & SubReg$node.label == Comb[6,2]]<-"amesicv"
+slouchTree$node.label[GMreg$node.label == Comb[7,1] & SubReg$node.label == Comb[7,2]]<-"ammv"
+slouchTree$node.label[GMreg$node.label == Comb[8,1] & SubReg$node.label == Comb[8,2]]<-"pmesicv"
+slouchTree$node.label[GMreg$node.label == Comb[9,1] & SubReg$node.label == Comb[9,2]]<-"pmmv"
+slouchTree$node.label[GMreg$node.label == Comb[10,1] & SubReg$node.label == Comb[10,2]]<-"pmoistv"
+
+# Plotting nested regime
+co<-c("navy", "seagreen4", "blue", "green", "cyan", "red4", "slateblue4", "red", "purple", "lightcoral")
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$am_gf_sa), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, edge.color = co[Regimes], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(Regimes),
+       col=co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$am_gf_sa) 
+
+# Saving data
+write.csv(slouchData, file = "newData.csv")
+# Saving tree
+write.tree(slouchTree, file = "MGSreg.tre")
+
+# Moisture & light regime
+MLreg<-read.tree(file = "MLreg.tre")
+# Check match
+name.check(MLreg,slouchData)
+# Check alignment
+slouchData$Species == MLreg$tip.label
+# Tree units
+MLreg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(MLreg))
+# Plot regime
+ML.co <- c("black", "darkgrey", "grey88", "goldenrod2", "gold", "khaki1")
+Internal_ML <- MLreg$node.label
+ML_Vec <- c(as.character(slouchData$am_l), Internal_ML)
+ML_Reg <- factor(ML_Vec[MLreg$edge[,2]])
+plot(MLreg, edge.color = ML.co[ML_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(ML_Reg),
+       col=ML.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Substrate regime
+SubReg<-read.tree(file = "SubReg.tre")
+# Check match
+name.check(SubReg,slouchData)
+# Check alignment
+slouchData$Species == SubReg$tip.label
+# Tree units
+SubReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(SubReg))
+# Plot regime
+S.co <- c("brown", "green")
+Internal_S <- SubReg$node.label
+S_Vec <- c(as.character(slouchData$substrate_aspect), Internal_S)
+S_Reg <- factor(S_Vec[SubReg$edge[,2]])
+plot(SubReg, edge.color = S.co[S_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(S_Reg),
+       col=S.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Check tree matching
+max(node.depth.edgelength(MLreg)) == max(node.depth.edgelength(SubReg))
+MLreg$edge.length == SubReg$edge.length
+MLreg$tip.label == SubReg$tip.label
+
+# Generating nested regime
+slouchTree <- MLreg
+slouchTree$node.label <- rep("NA", length(slouchTree$node.label))
+Comb<-expand.grid(levels(as.factor(MLreg$node.label)),levels(as.factor(SubReg$node.label)))
+slouchTree$node.label[MLreg$node.label == Comb[1,1] & SubReg$node.label == Comb[1,2]]<-"fhmesic"
+slouchTree$node.label[MLreg$node.label == Comb[2,1] & SubReg$node.label == Comb[2,2]]<-"fhmm"
+slouchTree$node.label[MLreg$node.label == Comb[3,1] & SubReg$node.label == Comb[3,2]]<-"fhmoist"
+slouchTree$node.label[MLreg$node.label == Comb[4,1] & SubReg$node.label == Comb[4,2]]<-"fvmesic"
+slouchTree$node.label[MLreg$node.label == Comb[5,1] & SubReg$node.label == Comb[5,2]]<-"fvmm"
+slouchTree$node.label[MLreg$node.label == Comb[6,1] & SubReg$node.label == Comb[6,2]]<-"fvmoist"
+
+# Plotting nested regime
+co<-c("black", "darkgrey", "grey88", "navy", "blue", "goldenrod2", "gold", "khaki1", "red4", "red")
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$sa_l_am), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, edge.color = co[Regimes], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(Regimes),
+       col=co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$sa_l_am) 
+
+# Saving data
+write.csv(slouchData, file = "newData.csv")
+# Saving tree
+write.tree(slouchTree, file = "SLMreg.tre")
+
+# Moisture/light/substrate regime
+SLMreg<-read.tree(file = "SLMreg.tre")
+# Check match
+name.check(SLMreg,slouchData)
+# Check alignment
+slouchData$Species == SLMreg$tip.label
+# Tree units
+SLMreg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(SLMreg))
+# Plot regime
+SLM.co <- c("black", "darkgrey", "grey88", "navy", "blue", "goldenrod2", "gold", "khaki1", "red4", "red")
+Internal_SLM <- SLMreg$node.label
+SLM_Vec <- c(as.character(slouchData$sa_l_am), Internal_SLM)
+SLM_Reg <- factor(SLM_Vec[SLMreg$edge[,2]])
+plot(SLMreg, edge.color = SLM.co[SLM_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(SLM_Reg),
+       col=SLM.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Growth regime
+GrowthReg<-read.tree(file = "GrowthReg.tre")
+# Check match
+name.check(GrowthReg,slouchData)
+# Check alignment
+slouchData$Species == GrowthReg$tip.label
+# Tree units
+GrowthReg$edge.length
+# Maximum tree depth
+max(node.depth.edgelength(GrowthReg))
+# Plot regime
+G.co <- c("blue", "brown")
+Internal_G <- GrowthReg$node.label
+G_Vec <- c(as.character(slouchData$growthform), Internal_G)
+G_Reg <- factor(G_Vec[GrowthReg$edge[,2]])
+plot(GrowthReg, edge.color = G.co[G_Reg], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(G_Reg),
+       col=G.co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+# Check tree matching
+max(node.depth.edgelength(SLMreg)) == max(node.depth.edgelength(GrowthReg))
+SLMreg$edge.length == GrowthReg$edge.length
+SLMreg$tip.label == GrowthReg$tip.label
+
+# Generating nested regime
+slouchTree <- SLMreg
+slouchTree$node.label <- rep("NA", length(slouchTree$node.label))
+Comb<-expand.grid(levels(as.factor(SLMreg$node.label)),levels(as.factor(GrowthReg$node.label)))
+slouchTree$node.label[SLMreg$node.label == Comb[1,1] & GrowthReg$node.label == Comb[1,2]]<-"afmesichor"
+slouchTree$node.label[SLMreg$node.label == Comb[2,1] & GrowthReg$node.label == Comb[2,2]]<-"afmoist_mesichor"
+slouchTree$node.label[SLMreg$node.label == Comb[3,1] & GrowthReg$node.label == Comb[3,2]]<-"afmoisthor"
+slouchTree$node.label[SLMreg$node.label == Comb[4,1] & GrowthReg$node.label == Comb[4,2]]<-"afmesicver"
+slouchTree$node.label[SLMreg$node.label == Comb[5,1] & GrowthReg$node.label == Comb[5,2]]<-"afmoist_mesicver"
+slouchTree$node.label[SLMreg$node.label == Comb[6,1] & GrowthReg$node.label == Comb[6,2]]<-"pfmesichor"
+slouchTree$node.label[SLMreg$node.label == Comb[7,1] & GrowthReg$node.label == Comb[7,2]]<-"pfmoist_mesichor"
+slouchTree$node.label[SLMreg$node.label == Comb[8,1] & GrowthReg$node.label == Comb[8,2]]<-"pfmoisthor"
+slouchTree$node.label[SLMreg$node.label == Comb[9,1] & GrowthReg$node.label == Comb[9,2]]<-"pfmesicver"
+slouchTree$node.label[SLMreg$node.label == Comb[10,1] & GrowthReg$node.label == Comb[10,2]]<-"pfmoist_mesicver"
+
+# Plotting nested regime
+co<-c("black","navy", "darkgrey", "blue", "grey88", "goldenrod2", "red4", "gold", "red", "khaki1", "darkgreen", 
+      "green4", "green", "palegreen4", "palegreen", "seagreen1", "springgreen", "yellowgreen")
+Internal_regimes <- slouchTree$node.label
+Reg_Vec <- c(as.character(slouchData$am_gf_sa_l), Internal_regimes)
+Regimes <- factor(Reg_Vec[slouchTree$edge[,2]])
+plot(slouchTree, edge.color = co[Regimes], 
+     edge.width = 3, cex = 0.5)
+add.scale.bar(5, 0, length = 100, cex = 0.5)
+legend("topleft", levels(Regimes),
+       col=co,
+       lty = c("solid"),
+       cex = 0.5,
+       box.col = "black")
+
+
+# Example
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$log_phyllid_area,fixed.fact = slouchData$am_gf_sa_l) 
+
+# Saving data
+write.csv(slouchData, file = "newData.csv")
+# Saving tree
+write.tree(slouchTree, file = "AllReg.tre")
+
+
+##————————————————————————————————————##
+	SLOUCH ANCOVA ANALYSIS OF COSTA LENGTH
+##————————————————————————————————————##
+
+#Two way
+
+OU <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$costa_length,fixed.fact = slouchData$growthform) 
+
+OUanc <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$costa_length ,fixed.fact = slouchData$gf_sa, random.cov=slouchData$phyllid_length) 
+                 
+OUanc <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$costa_length, fixed.fact = slouchData$am_g, random.cov=slouchData$phyllid_length) 
+
+OUanc <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$costa_length, fixed.fact = slouchData$gf_sa, random.cov=slouchData$phyllid_length) 
+
+OUanc <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$costa_length, fixed.fact = slouchData$am_sa, random.cov=slouchData$phyllid_length) 
+
+OUanc <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$costa_length, fixed.fact = slouchData$sa_l, random.cov=slouchData$phyllid_length) 
+
+OUanc <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$costa_length, fixed.fact = slouchData$am_g, random.cov=slouchData$phyllid_length) 
+
+# Three-way
+
+OUanc <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$costa_length, fixed.fact = slouchData$gf_l_am, random.cov=slouchData$phyllid_length) 
+
+OUanc <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$costa_length, fixed.fact = slouchData$gf_sa_l, random.cov=slouchData$phyllid_length) 
+
+OUanc <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$costa_length, fixed.fact = slouchData$sa_l_am, random.cov=slouchData$phyllid_length) 
+
+OUanc <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$costa_length, fixed.fact = slouchData$am_gf_sa, random.cov=slouchData$phyllid_length) 
+
+# Four-way
+
+OUanc <- slouch.fit(phy = slouchTree, species = slouchData$Species,
+                 response = slouchData$costa_length, fixed.fact = slouchData$am_gf_sa_l, random.cov=slouchData$phyllid_length) 
+
+
+
+
+##————————————————————————————————————##
+	CODE FOR FIGURE 5
+##————————————————————————————————————##
+
+
+
+
+# Turberville et al (2021) figure 5
+
+slouchData<-read.csv("~/Desktop/Documents/Work/Research/Graduate students /Caleb Turberville/analysis/R analysis and data/For submission/Main/Growth/Data.csv", header = T,row.names = 1)  # insert file path to your working folder where the “data.csv” file has been saved
+
+library(ape)
+library(slouch)
+library(geiger)
+# model of costa length ~ substrate_growthform + phyllid length
+
+split.screen(c(1, 2))
+screen(1)
+
+plot(slouchData$costa_length~slouchData$phyllid_length, ylab ="Costa length (um)", xlab ="Phyllid length (um)", cex.lab=1.3,)
+points(slouchData$costa_length[slouchData$growthform=="ple"]~slouchData$phyllid_length[slouchData$growthform=="ple""], pch=16)
+legend("topleft", "A", bty="n", cex=2, xjust=0, x.intersp = -0.4)
+abline(433.4527, 0.743, lty=2)
+abline(-345.6389, 0.742)
+
+screen(2)
+
+plot(slouchData$costa_length~slouchData$phyllid_length, ylab ="Costa length (um)", xlab ="Phyllid length (um)", cex.lab=1.3)
+legend("topleft", "B", bty="n", cex=2, xjust=0, x.intersp = -0.4)
+points(slouchData$costa_length[slouchData$gf_sa=="ah"]~slouchData$phyllid_length[slouchData$gf_sa=="ah"], pch=16, col="blue")
+points(slouchData$costa_length[slouchData$gf_sa=="av"]~slouchData$phyllid_length[slouchData$gf_sa=="av"], col="blue")
+points(slouchData$costa_length[slouchData$gf_sa=="ph"]~slouchData$phyllid_length[slouchData$gf_sa=="ph"])
+points(slouchData$costa_length[slouchData$gf_sa=="pv"]~slouchData$phyllid_length[slouchData$gf_sa=="pv"], pch=16)
+
+abline(446.2233, 0.7488, lty=2, col="blue")          #ah
+abline(365.3962, 0.7488, col="blue")   #av
+abline(-473.6486, 0.7488,lty=2)                    #ph
+abline(-172.4367, 0.7488)             #pv
+
+dev.off()
