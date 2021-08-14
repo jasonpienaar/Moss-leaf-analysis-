@@ -1579,15 +1579,15 @@ library(geiger)
 split.screen(c(1, 2))
 screen(1)
 
-plot(slouchData$costa_length~slouchData$phyllid_length, ylab ="Costa length (um)", xlab ="Phyllid length (um)", cex.lab=1.3,)
-points(slouchData$costa_length[slouchData$growthform=="ple"]~slouchData$phyllid_length[slouchData$growthform=="ple""], pch=16)
+plot(slouchData$costa_length~slouchData$phyllid_length, ylab =expression(paste("Costa length ","(", mu, "m)" )), xlab =expression(paste("Phyllid length ","(", mu, "m)" )))
+points(slouchData$costa_length[slouchData$gf_sa=="pv"]~slouchData$phyllid_length[slouchData$gf_sa=="pv"], pch=16)
 legend("topleft", "A", bty="n", cex=2, xjust=0, x.intersp = -0.4)
 abline(433.4527, 0.743, lty=2)
 abline(-345.6389, 0.742)
 
 screen(2)
 
-plot(slouchData$costa_length~slouchData$phyllid_length, ylab ="Costa length (um)", xlab ="Phyllid length (um)", cex.lab=1.3)
+plot(slouchData$costa_length~slouchData$phyllid_length, ylab =expression(paste("Costa length ","(", mu, "m)" )), xlab =expression(paste("Phyllid length ","(", mu, "m)" )))
 legend("topleft", "B", bty="n", cex=2, xjust=0, x.intersp = -0.4)
 points(slouchData$costa_length[slouchData$gf_sa=="ah"]~slouchData$phyllid_length[slouchData$gf_sa=="ah"], pch=16, col="blue")
 points(slouchData$costa_length[slouchData$gf_sa=="av"]~slouchData$phyllid_length[slouchData$gf_sa=="av"], col="blue")
