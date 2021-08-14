@@ -1,4 +1,5 @@
-# Moss-leaf-analysis- This repository contains R code to perform the analyses and plot the figures in 
+# Moss-leaf-analysis-README 
+This repository contains R code to perform the analyses and plot the figures in 
 Turberville et al (2021) Moss phyllid morphology varies systematically with substrate slope. Plant Ecology and Evolution. 
 
 The "data.csv" file contains the moss phyllid leaf measurements and habitat / growth form characteristics. 
